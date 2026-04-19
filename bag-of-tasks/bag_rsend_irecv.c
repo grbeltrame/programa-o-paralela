@@ -1,0 +1,101 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include "mpi.h"
+#include <math.h>
+#define TAMANHO 500000
+
+int primo(int n) {
+    int i;
+    for (i = 3; i < (int)(sqrt(n) + 1); i += 2)
+        if (n % i == 0) return 0;
+    return 1;
+}
+
+int main(int argc, char *argv[]) { /* bag_rsend_irecv.c */
+double t_inicial, t_final;
+int cont = 0, total = 0;
+int i, n;
+int meu_ranque, num_procs, inicio, dest, raiz=0, tag=1, stop=0;
+MPI_Status estado;
+MPI_Request pedido;
+
+    if (argc < 2) {
+        printf("Entre com o valor do maior inteiro como parâmetro para o programa.\n");
+        return 0;
+    } else {
+        n = strtol(argv[1], (char **) NULL, 10);
+    }
+
+    MPI_Init(&argc, &argv);
+    MPI_Comm_rank(MPI_COMM_WORLD, &meu_ranque);
+    MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
+
+    if (num_procs < 2) {
+        printf("Este programa deve ser executado com no mínimo dois processos.\n");
+        MPI_Abort(MPI_COMM_WORLD, 1);
+        return(1);
+    }
+
+    if (meu_ranque == 0) {
+        t_inicial = MPI_Wtime();
+
+        /* Aguarda que todos os workers postem seu Irecv inicial (barreira de sincronização)
+           antes de chamar MPI_Rsend, que exige receive já postado no destino */
+        MPI_Barrier(MPI_COMM_WORLD);
+
+        for (dest=1, inicio=3; dest < num_procs && inicio < n; dest++, inicio += TAMANHO)
+            MPI_Rsend(&inicio, 1, MPI_INT, dest, tag, MPI_COMM_WORLD);
+
+        while (dest < num_procs) {
+            MPI_Rsend(&inicio, 1, MPI_INT, dest, 99, MPI_COMM_WORLD);
+            stop++;
+            dest++;
+        }
+
+        while (stop < (num_procs-1)) {
+            /* Posta o Irecv antes do próximo Rsend para que o worker possa Rsend o resultado */
+            MPI_Irecv(&cont, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &pedido);
+            MPI_Wait(&pedido, &estado);
+
+            total += cont;
+            dest = estado.MPI_SOURCE;
+            if (inicio > n) {
+                tag = 99;
+                stop++;
+            }
+            /* Worker já postou Irecv para o próximo chunk antes de enviar o resultado */
+            MPI_Rsend(&inicio, 1, MPI_INT, dest, tag, MPI_COMM_WORLD);
+            inicio += TAMANHO;
+        }
+    } else {
+        /* Posta o Irecv para o chunk inicial e sinaliza o mestre via barreira */
+        MPI_Irecv(&inicio, 1, MPI_INT, raiz, MPI_ANY_TAG, MPI_COMM_WORLD, &pedido);
+        MPI_Barrier(MPI_COMM_WORLD);
+        MPI_Wait(&pedido, &estado);
+
+        while (estado.MPI_TAG != 99) {
+            for (i = inicio, cont=0; i < (inicio + TAMANHO) && i < n; i+=2)
+                if (primo(i) == 1) cont++;
+
+            /* Posta Irecv para o próximo chunk ANTES de enviar resultado,
+               garantindo que o mestre possa Rsend novo trabalho com segurança */
+            MPI_Irecv(&inicio, 1, MPI_INT, raiz, MPI_ANY_TAG, MPI_COMM_WORLD, &pedido);
+
+            MPI_Rsend(&cont, 1, MPI_INT, raiz, tag, MPI_COMM_WORLD);
+
+            MPI_Wait(&pedido, &estado);
+        }
+        t_final = MPI_Wtime();
+    }
+
+    if (meu_ranque == 0) {
+        t_final = MPI_Wtime();
+        total += 1;
+        printf("Quant. de primos entre 1 e %d: %d \n", n, total);
+        printf("Tempo de execucao: %1.3f \n", t_final - t_inicial);
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Finalize();
+    return(0);
+}
