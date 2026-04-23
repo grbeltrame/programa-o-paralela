@@ -36,8 +36,10 @@ MPI_Request pedido;
         return(1);
     }
 
+    t_inicial = MPI_Wtime();
+
     if (meu_ranque == 0) {
-        t_inicial = MPI_Wtime();
+   
 
         /* Aguarda que todos os workers postem seu Irecv inicial (barreira de sincronização)
            antes de chamar MPI_Rsend, que exige receive já postado no destino */

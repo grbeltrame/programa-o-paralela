@@ -77,8 +77,7 @@ void *buf;
         t_final = MPI_Wtime();
     }
 
-    MPI_Buffer_detach(&buf, &buf_size);
-    free(buf);
+
 
     if (meu_ranque == 0) {
         t_final = MPI_Wtime();
@@ -88,6 +87,8 @@ void *buf;
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Buffer_detach(&buf, &buf_size);
+    free(buf);
     MPI_Finalize();
     return(0);
 }
